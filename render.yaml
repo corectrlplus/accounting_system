@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: license-server
+    runtime: docker
+    dockerfilePath: ./server/Dockerfile
+    envVars:
+      - key: PORT
+        value: 8080
+    plan: free
+    healthCheckPath: /api/health

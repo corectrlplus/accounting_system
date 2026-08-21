@@ -1,0 +1,21 @@
+import 'package:flutter/material.dart';
+import 'package:accounting_system/data/database/app_database.dart';
+
+class AppDatabaseProvider extends InheritedWidget {
+  final AppDatabase db;
+
+  const AppDatabaseProvider({
+    super.key,
+    required this.db,
+    required super.child,
+  });
+
+  static AppDatabase of(BuildContext context) {
+    final provider = context.dependOnInheritedWidgetOfExactType<AppDatabaseProvider>();
+    assert(provider != null, 'No AppDatabaseProvider found in context');
+    return provider!.db;
+  }
+
+  @override
+  bool updateShouldNotify(AppDatabaseProvider oldWidget) => false;
+}
