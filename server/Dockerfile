@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY --from=build /app/bin/server /app/bin/server
+COPY --from=build /app/bin/dashboard.html /app/bin/dashboard.html
 
 EXPOSE 8080
 

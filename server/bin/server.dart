@@ -91,7 +91,8 @@ Response _healthHandler(Request request) {
 }
 
 Response _adminDashboardHandler(Request request) {
-  final html = File('${Directory.current.path}/bin/dashboard.html').readAsStringSync();
+  final scriptDir = File(Platform.script.toFilePath()).parent.path;
+  final html = File('$scriptDir/dashboard.html').readAsStringSync();
   return Response.ok(html, headers: {'Content-Type': 'text/html; charset=utf-8'});
 }
 
