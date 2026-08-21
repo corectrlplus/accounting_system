@@ -40,14 +40,15 @@ class _ActivationScreenState extends State<ActivationScreen> {
   Future<void> _activate() async {
     final loc = AppLocalizations.of(context);
     final key = _fullKey;
-    if (key.length < 19) {
-      setState(() => _error = loc.enterActivationKey);
-      return;
-    }
 
     final companyName = _companyController.text.trim();
     if (companyName.isEmpty) {
       setState(() => _error = 'يرجى إدخال اسم الشركة');
+      return;
+    }
+
+    if (key.length < 19 || key.split('-').any((s) => s.length != 4)) {
+      setState(() => _error = loc.enterActivationKey);
       return;
     }
 

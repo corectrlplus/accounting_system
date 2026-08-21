@@ -18,49 +18,31 @@ void main(List<String> args) async {
     exit(1);
   }
 
-  final uri = Uri.parse(dbUrl);
-  final host = uri.host;
-  final dbPort = uri.port > 0 ? uri.port : 5432;
-  final dbName = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : 'license_server';
-
-  // Parse credentials: Render URLs may have encoded passwords with special chars
-  var username = '';
-  var password = '';
-  final userInfo = uri.userInfo;
-  if (userInfo.isNotEmpty) {
-    final colonIdx = userInfo.indexOf(':');
-    if (colonIdx > 0) {
-      username = Uri.decodeComponent(userInfo.substring(0, colonIdx));
-      password = Uri.decodeComponent(userInfo.substring(colonIdx + 1));
-    } else {
-      username = Uri.decodeComponent(userInfo);
-    }
-  }
-
-  print('Connecting to PostgreSQL: host=$host port=$dbPort db=$dbName user=$username');
+  final parsed = _parseDatabaseUrl(dbUrl);
+  print('DB connection: host=${parsed.host} port=${parsed.port} db=${parsed.database} user=${parsed.username}');
 
   db = PostgreSQLConnection(
-    host,
-    dbPort,
-    dbName,
-    username: username,
-    password: password,
+    parsed.host,
+    parsed.port,
+    parsed.database,
+    username: parsed.username,
+    password: parsed.password,
     useSSL: true,
+    allowClearTextPassword: true,
   );
 
-  // Retry connection up to 5 times (Render DB may be starting)
-  for (int attempt = 1; attempt <= 5; attempt++) {
+  for (int attempt = 1; attempt <= 10; attempt++) {
     try {
       await db.open();
       print('Database connected successfully on attempt $attempt');
       break;
     } catch (e) {
       print('Connection attempt $attempt failed: $e');
-      if (attempt == 5) {
-        print('ERROR: Could not connect to database after 5 attempts');
+      if (attempt == 10) {
+        print('ERROR: Could not connect to database after 10 attempts');
         exit(1);
       }
-      await Future.delayed(Duration(seconds: 3 * attempt));
+      await Future.delayed(Duration(seconds: 5 * attempt));
     }
   }
 
@@ -82,6 +64,71 @@ void main(List<String> args) async {
 
   final server = await io.serve(handler, InternetAddress.anyIPv4, port);
   print('License server running on http://${server.address.host}:${server.port}');
+}
+
+class _DbInfo {
+  final String host;
+  final int port;
+  final String database;
+  final String username;
+  final String password;
+  _DbInfo(this.host, this.port, this.database, this.username, this.password);
+}
+
+_DbInfo _parseDatabaseUrl(String url) {
+  // Remove postgres:// or postgresql:// prefix
+  var clean = url.replaceFirst(RegExp(r'^postgres(ql)?://'), '');
+
+  // Find the last @ to split userInfo from hostInfo
+  // Passwords may contain @ so we must split on the LAST @
+  final lastAt = clean.lastIndexOf('@');
+  if (lastAt < 0) {
+    throw Exception('Invalid DATABASE_URL: no @ found');
+  }
+
+  final userInfo = clean.substring(0, lastAt);
+  var hostPortDb = clean.substring(lastAt + 1);
+
+  // Split host:port from /dbname?params
+  var host = '';
+  var port = 5432;
+  var database = 'license_server';
+
+  final slashIdx = hostPortDb.indexOf('/');
+  final hostPort = slashIdx > 0 ? hostPortDb.substring(0, slashIdx) : hostPortDb;
+  var pathPart = slashIdx > 0 ? hostPortDb.substring(slashIdx + 1) : '';
+
+  // Parse host:port
+  final colonIdx = hostPort.lastIndexOf(':');
+  if (colonIdx > 0) {
+    host = hostPort.substring(0, colonIdx);
+    final portStr = hostPort.substring(colonIdx + 1);
+    port = int.tryParse(portStr) ?? 5432;
+  } else {
+    host = hostPort;
+    port = 5432;
+  }
+
+  // Parse database name (strip query params)
+  if (pathPart.isNotEmpty) {
+    final qIdx = pathPart.indexOf('?');
+    database = qIdx > 0 ? pathPart.substring(0, qIdx) : pathPart;
+  }
+
+  // Parse username:password
+  var username = '';
+  var password = '';
+  if (userInfo.isNotEmpty) {
+    final colonIdx = userInfo.indexOf(':');
+    if (colonIdx > 0) {
+      username = Uri.decodeComponent(userInfo.substring(0, colonIdx));
+      password = Uri.decodeComponent(userInfo.substring(colonIdx + 1));
+    } else {
+      username = Uri.decodeComponent(userInfo);
+    }
+  }
+
+  return _DbInfo(host, port, database, username, password);
 }
 
 Future<void> _initDatabase() async {
@@ -187,6 +234,8 @@ Future<Response> _activateHandler(Request request) async {
   final deviceId = body['device_id'] as String? ?? '';
   final companyName = body['company_name'] as String? ?? '';
 
+  print('Activate request: key=$licenseKey device=$deviceId company=$companyName');
+
   if (licenseKey.isEmpty || deviceId.isEmpty) {
     return Response.badRequest(
       body: jsonEncode({'error': 'license_key and device_id are required'}),
@@ -202,6 +251,7 @@ Future<Response> _activateHandler(Request request) async {
   );
 
   if (results.isEmpty) {
+    print('Key not found in DB: $licenseKey');
     _logAction(licenseKey, deviceId, 'activate_failed', request);
     return Response.ok(
       jsonEncode({'error': 'Invalid license key', 'valid': false}),
@@ -256,6 +306,8 @@ Future<Response> _verifyHandler(Request request) async {
   final licenseKey = (body['license_key'] as String? ?? '').toUpperCase().trim();
   final deviceId = body['device_id'] as String? ?? '';
 
+  print('Verify request: key=$licenseKey device=$deviceId');
+
   if (licenseKey.isEmpty) {
     return Response.ok(
       jsonEncode({'valid': false, 'error': 'license_key required'}),
@@ -269,6 +321,7 @@ Future<Response> _verifyHandler(Request request) async {
   );
 
   if (results.isEmpty) {
+    print('Verify: key not found: $licenseKey');
     return Response.ok(
       jsonEncode({'valid': false, 'error': 'Key not found'}),
       headers: {'Content-Type': 'application/json'},
@@ -285,6 +338,7 @@ Future<Response> _verifyHandler(Request request) async {
   }
 
   if (license['device_id'] != deviceId) {
+    print('Verify: device mismatch. DB device=${license['device_id']} request device=$deviceId');
     return Response.ok(
       jsonEncode({'valid': false, 'error': 'Activated on another device'}),
       headers: {'Content-Type': 'application/json'},
@@ -421,10 +475,14 @@ String _randomChar() {
 }
 
 void _logAction(String key, String deviceId, String action, Request request) async {
-  final now = DateTime.now().millisecondsSinceEpoch;
-  final ip = request.headers['X-Forwarded-For'] ?? 'unknown';
-  await db.execute(
-    'INSERT INTO activation_log (license_key, device_id, action, timestamp, ip_address) VALUES (@key, @did, @action, @ts, @ip)',
-    substitutionValues: {'key': key, 'did': deviceId, 'action': action, 'ts': now, 'ip': ip},
-  );
+  try {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final ip = request.headers['X-Forwarded-For'] ?? 'unknown';
+    await db.execute(
+      'INSERT INTO activation_log (license_key, device_id, action, timestamp, ip_address) VALUES (@key, @did, @action, @ts, @ip)',
+      substitutionValues: {'key': key, 'did': deviceId, 'action': action, 'ts': now, 'ip': ip},
+    );
+  } catch (e) {
+    print('Warning: failed to log action: $e');
+  }
 }

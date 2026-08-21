@@ -12,6 +12,22 @@ class LicenseService {
   static const String _prefsKeyCompanyName = 'company_name';
   static const String _prefsKeyExpiryTimestamp = 'license_expiry_ts';
 
+  static const Map<String, String> _errorTranslations = {
+    'Invalid license key': 'مفتاح التفعيل غير صالح',
+    'Key not found': 'المفتاح غير موجود في النظام',
+    'Key not activated': 'المفتاح لم يتم تفعيله بعد',
+    'Activated on another device': 'المفتاح مفعل على جهاز آخر',
+    'Subscription expired': 'انتهت صلاحية الاشتراك',
+    'This key is activated on another device.': 'هذا المفتاح مفعل على جهاز آخر',
+    'license_key and device_id are required': 'المفتاح والجهاز مطلوبان',
+    'license_key required': 'مفتاح التفعيل مطلوب',
+  };
+
+  static String _translateError(String? serverError) {
+    if (serverError == null || serverError.isEmpty) return 'فشل التفعيل';
+    return _errorTranslations[serverError] ?? serverError;
+  }
+
   static HttpClient _createClient() {
     final client = HttpClient();
     client.badCertificateCallback = (X509Certificate cert, String host, int port) => true;
@@ -63,7 +79,8 @@ class LicenseService {
 
       if (data['valid'] == true) {
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString(_prefsKeyLicense, licenseKey.toUpperCase().trim());
+        final serverKey = data['license_key'] as String? ?? licenseKey.toUpperCase().trim();
+        await prefs.setString(_prefsKeyLicense, serverKey);
         await prefs.setString(_prefsKeyPlan, data['plan'] ?? '');
         await prefs.setString(_prefsKeyCompanyName, companyName);
         await prefs.setBool(_prefsKeyValid, true);
@@ -84,13 +101,20 @@ class LicenseService {
       } else {
         return LicenseResult(
           valid: false,
-          message: data['error'] ?? 'فشل التفعيل',
+          message: _translateError(data['error']),
         );
       }
     } catch (e) {
+      final errorStr = e.toString();
+      if (errorStr.contains('SocketException') || errorStr.contains('Connection refused')) {
+        return LicenseResult(
+          valid: false,
+          message: 'تعذر الاتصال بالسيرفر. تحقق من اتصال الإنترنت',
+        );
+      }
       return LicenseResult(
         valid: false,
-        message: 'خطأ في الاتصال بالسيرفر: ${e.toString()}',
+        message: 'خطأ في الاتصال بالسيرفر: $errorStr',
       );
     }
   }
@@ -126,14 +150,15 @@ class LicenseService {
           plan: data['plan'] ?? '',
           expiresAt: data['expires_at'] ?? '',
           daysRemaining: data['days_remaining'] ?? 0,
-          companyName: prefs.getString(_prefsKeyCompanyName) ?? '',
+          companyName: prefs.getString(_prefsKeyCompanyName) ?? (data['company_name'] ?? ''),
           message: 'اشتراك نشط',
         );
       } else {
         await prefs.setBool(_prefsKeyValid, false);
         return LicenseResult(
           valid: false,
-          message: data['error'] ?? 'اشتراك غير صالح',
+          isExpired: data['error'] == 'Subscription expired',
+          message: _translateError(data['error']),
           plan: data['plan'] ?? '',
         );
       }
