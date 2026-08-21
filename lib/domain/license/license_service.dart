@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crypto/crypto.dart';
 
@@ -10,6 +9,27 @@ class LicenseService {
   static const String _prefsKeyDeviceId = 'device_id';
   static const String _prefsKeyPlan = 'license_plan';
   static const String _prefsKeyValid = 'license_valid';
+
+  static HttpClient _createClient() {
+    final client = HttpClient();
+    client.badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+    return client;
+  }
+
+  static Future<String> _post(String path, Map<String, dynamic> body) async {
+    final client = _createClient();
+    try {
+      final uri = Uri.parse('$_serverUrl$path');
+      final request = await client.postUrl(uri);
+      request.headers.set('Content-Type', 'application/json');
+      request.write(jsonEncode(body));
+      final response = await request.close().timeout(const Duration(seconds: 120));
+      final responseBody = await response.transform(utf8.decoder).join();
+      return responseBody;
+    } finally {
+      client.close();
+    }
+  }
 
   static Future<String> getDeviceId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -29,16 +49,12 @@ class LicenseService {
   static Future<LicenseResult> activate(String licenseKey) async {
     try {
       final deviceId = await getDeviceId();
-      final response = await http.post(
-        Uri.parse('$_serverUrl/api/activate'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'license_key': licenseKey,
-          'device_id': deviceId,
-        }),
-      ).timeout(const Duration(seconds: 120));
+      final responseBody = await _post('/api/activate', {
+        'license_key': licenseKey,
+        'device_id': deviceId,
+      });
 
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final data = jsonDecode(responseBody) as Map<String, dynamic>;
 
       if (data['valid'] == true) {
         final prefs = await SharedPreferences.getInstance();
@@ -75,16 +91,12 @@ class LicenseService {
       }
 
       final deviceId = await getDeviceId();
-      final response = await http.post(
-        Uri.parse('$_serverUrl/api/verify'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'license_key': licenseKey,
-          'device_id': deviceId,
-        }),
-      ).timeout(const Duration(seconds: 120));
+      final responseBody = await _post('/api/verify', {
+        'license_key': licenseKey,
+        'device_id': deviceId,
+      });
 
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final data = jsonDecode(responseBody) as Map<String, dynamic>;
 
       if (data['valid'] == true) {
         await prefs.setString(_prefsKeyPlan, data['plan'] ?? '');
