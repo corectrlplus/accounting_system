@@ -3,10 +3,12 @@ import 'package:accounting_system/data/database/app_database.dart';
 
 class AppDatabaseProvider extends InheritedWidget {
   final AppDatabase db;
+  final bool subscriptionExpired;
 
   const AppDatabaseProvider({
     super.key,
     required this.db,
+    this.subscriptionExpired = false,
     required super.child,
   });
 
@@ -16,6 +18,12 @@ class AppDatabaseProvider extends InheritedWidget {
     return provider!.db;
   }
 
+  static bool isExpired(BuildContext context) {
+    final provider = context.dependOnInheritedWidgetOfExactType<AppDatabaseProvider>();
+    return provider?.subscriptionExpired ?? false;
+  }
+
   @override
-  bool updateShouldNotify(AppDatabaseProvider oldWidget) => false;
+  bool updateShouldNotify(AppDatabaseProvider oldWidget) =>
+      subscriptionExpired != oldWidget.subscriptionExpired;
 }

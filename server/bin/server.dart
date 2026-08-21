@@ -39,6 +39,7 @@ void _initDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       license_key TEXT UNIQUE NOT NULL,
       plan TEXT NOT NULL DEFAULT 'monthly',
+      company_name TEXT DEFAULT '',
       device_id TEXT,
       activated_at INTEGER,
       expires_at INTEGER,
@@ -58,6 +59,10 @@ void _initDatabase() {
       ip_address TEXT
     )
   ''');
+
+  try {
+    db.execute("ALTER TABLE licenses ADD COLUMN company_name TEXT DEFAULT ''");
+  } catch (_) {}
 
   print('Database initialized');
 }
@@ -105,6 +110,7 @@ Future<Response> _generateCodeHandler(Request request) async {
   final body = jsonDecode(await request.readAsString());
   final count = body['count'] as int? ?? 1;
   final plan = body['plan'] as String? ?? 'monthly';
+  final companyName = body['company_name'] as String? ?? '';
 
   final codes = <Map<String, dynamic>>[];
   final now = DateTime.now().millisecondsSinceEpoch;
@@ -112,12 +118,13 @@ Future<Response> _generateCodeHandler(Request request) async {
   for (int i = 0; i < count; i++) {
     final key = _generateLicenseKey();
     db.execute(
-      'INSERT INTO licenses (license_key, plan, created_at) VALUES (?, ?, ?)',
-      [key, plan, now],
+      'INSERT INTO licenses (license_key, plan, company_name, created_at) VALUES (?, ?, ?, ?)',
+      [key, plan, companyName, now],
     );
     codes.add({
       'license_key': key,
       'plan': plan,
+      'company_name': companyName,
     });
   }
 
@@ -131,6 +138,7 @@ Future<Response> _activateHandler(Request request) async {
   final body = jsonDecode(await request.readAsString());
   final licenseKey = (body['license_key'] as String? ?? '').toUpperCase().trim();
   final deviceId = body['device_id'] as String? ?? '';
+  final companyName = body['company_name'] as String? ?? '';
 
   if (licenseKey.isEmpty || deviceId.isEmpty) {
     return Response.badRequest(
@@ -173,9 +181,11 @@ Future<Response> _activateHandler(Request request) async {
   final durationDays = license['plan'] == 'yearly' ? 365 : 30;
   final expiresAt = now + (durationDays * 24 * 60 * 60 * 1000);
 
+  final storedCompanyName = companyName.isNotEmpty ? companyName : (license['company_name'] as String? ?? '');
+
   db.execute(
-    'UPDATE licenses SET device_id = ?, activated_at = ?, expires_at = ?, is_active = 1 WHERE license_key = ?',
-    [deviceId, now, expiresAt, licenseKey],
+    'UPDATE licenses SET device_id = ?, activated_at = ?, expires_at = ?, company_name = ?, is_active = 1 WHERE license_key = ?',
+    [deviceId, now, expiresAt, storedCompanyName, licenseKey],
   );
 
   _logAction(licenseKey, deviceId, 'activated', request);
@@ -185,6 +195,7 @@ Future<Response> _activateHandler(Request request) async {
       'valid': true,
       'license_key': licenseKey,
       'plan': license['plan'],
+      'company_name': storedCompanyName,
       'activated_at': DateTime.fromMillisecondsSinceEpoch(now).toIso8601String(),
       'expires_at': DateTime.fromMillisecondsSinceEpoch(expiresAt).toIso8601String(),
       'duration_days': durationDays,
@@ -317,7 +328,7 @@ Future<Response> _listLicensesHandler(Request request) async {
   }
 
   final results = db.select(
-    'SELECT id, license_key, plan, device_id, activated_at, expires_at, is_active, created_at FROM licenses ORDER BY created_at DESC',
+    'SELECT id, license_key, plan, company_name, device_id, activated_at, expires_at, is_active, created_at FROM licenses ORDER BY created_at DESC',
   );
 
   final now = DateTime.now().millisecondsSinceEpoch;
@@ -328,6 +339,7 @@ Future<Response> _listLicensesHandler(Request request) async {
       'id': row['id'],
       'license_key': row['license_key'],
       'plan': row['plan'],
+      'company_name': row['company_name'] ?? '',
       'device_id': row['device_id'] ?? 'Not activated',
       'is_active': row['is_active'] == 1 && !isExpired,
       'is_expired': isExpired,

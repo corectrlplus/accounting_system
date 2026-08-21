@@ -40,10 +40,13 @@ class AppEntry extends StatefulWidget {
   State<AppEntry> createState() => _AppEntryState();
 }
 
+enum AppLicenseState { checking, activated, expired, needsActivation }
+
 class _AppEntryState extends State<AppEntry> {
-  bool _checking = true;
-  bool _activated = false;
-  Future<AppDatabase>? _dbFuture;
+  AppLicenseState _licenseState = AppLicenseState.checking;
+  bool _dbReady = false;
+  AppDatabase? _db;
+  String? _dbError;
 
   @override
   void initState() {
@@ -52,43 +55,53 @@ class _AppEntryState extends State<AppEntry> {
   }
 
   Future<void> _checkLicense() async {
-    bool activated = false;
+    AppLicenseState state = AppLicenseState.needsActivation;
     try {
       final hasLicense = await LicenseService.hasLicense();
       if (hasLicense) {
         final result = await LicenseService.verify();
-        activated = result.valid;
+        if (result.valid) {
+          state = AppLicenseState.activated;
+        } else if (result.isSubscriptionExpired) {
+          state = AppLicenseState.expired;
+        } else {
+          state = AppLicenseState.needsActivation;
+        }
       }
     } catch (_) {
       try {
-        activated = await LicenseService.hasLicense();
+        final hasLicense = await LicenseService.hasLicense();
+        if (hasLicense) {
+          final isExpired = await LicenseService.isExpired();
+          state = isExpired ? AppLicenseState.expired : AppLicenseState.activated;
+        }
       } catch (_) {
-        activated = false;
+        state = AppLicenseState.needsActivation;
       }
     }
     if (!mounted) return;
-    setState(() {
-      _activated = activated;
-      _checking = false;
-    });
+    setState(() => _licenseState = state);
   }
 
-  void _initDatabase() {
-    if (_dbFuture == null) {
-      _dbFuture = _initDatabaseImpl();
+  Future<void> _initDatabase() async {
+    try {
+      final executor = await _createExecutor();
+      final db = AppDatabase(executor);
+      await db.seedCompanyDefaults('default_company', 'device_1');
+      if (!mounted) return;
+      setState(() {
+        _db = db;
+        _dbReady = true;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _dbError = e.toString());
     }
-  }
-
-  Future<AppDatabase> _initDatabaseImpl() async {
-    final executor = await _createExecutor();
-    final db = AppDatabase(executor);
-    await db.seedCompanyDefaults('default_company', 'device_1');
-    return db;
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_checking) {
+    if (_licenseState == AppLicenseState.checking) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         localizationsDelegates: _localizationDelegates,
@@ -109,80 +122,83 @@ class _AppEntryState extends State<AppEntry> {
       );
     }
 
-    if (!_activated) {
+    if (_licenseState == AppLicenseState.needsActivation) {
       return MaterialApp(
         debugShowCheckedModeBanner: false,
         localizationsDelegates: _localizationDelegates,
         supportedLocales: _supportedLocales,
         home: ActivationScreen(onActivated: () {
-          setState(() => _activated = true);
+          setState(() => _licenseState = AppLicenseState.checking);
+          _checkLicense();
         }),
       );
     }
 
-    _initDatabase();
+    if (!_dbReady && _dbError == null) {
+      _initDatabase();
+    }
 
-    return FutureBuilder<AppDatabase>(
-      future: _dbFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
-          return MaterialApp(
-            debugShowCheckedModeBanner: false,
-            localizationsDelegates: _localizationDelegates,
-            supportedLocales: _supportedLocales,
-            locale: const Locale('ar'),
-            home: Scaffold(
-              body: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: const [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text('جاري تهيئة النظام...'),
-                  ],
+    final isExpired = _licenseState == AppLicenseState.expired;
+
+    if (_dbError != null) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        localizationsDelegates: _localizationDelegates,
+        supportedLocales: _supportedLocales,
+        locale: const Locale('ar'),
+        home: Scaffold(
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                const SizedBox(height: 16),
+                const Text('خطأ في تهيئة قاعدة البيانات'),
+                const SizedBox(height: 8),
+                Text(
+                  _dbError!,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  textAlign: TextAlign.center,
                 ),
-              ),
-            ),
-          );
-        }
-        if (snapshot.hasError) {
-          return MaterialApp(
-            debugShowCheckedModeBanner: false,
-            localizationsDelegates: _localizationDelegates,
-            supportedLocales: _supportedLocales,
-            locale: const Locale('ar'),
-            home: Scaffold(
-              body: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                    const SizedBox(height: 16),
-                    Text('خطأ في تهيئة قاعدة البيانات'),
-                    const SizedBox(height: 8),
-                    Text(
-                      '${snapshot.error}',
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          _dbFuture = null;
-                          _initDatabase();
-                        });
-                      },
-                      child: const Text('إعادة المحاولة'),
-                    ),
-                  ],
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      _db = null;
+                      _dbReady = false;
+                      _dbError = null;
+                    });
+                  },
+                  child: const Text('إعادة المحاولة'),
                 ),
-              ),
+              ],
             ),
-          );
-        }
-        return AccountingApp(db: snapshot.data!);
-      },
-    );
+          ),
+        ),
+      );
+    }
+
+    if (_db == null) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        localizationsDelegates: _localizationDelegates,
+        supportedLocales: _supportedLocales,
+        locale: const Locale('ar'),
+        home: Scaffold(
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('جاري تهيئة النظام...'),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return AccountingApp(db: _db!, subscriptionExpired: isExpired);
   }
 }

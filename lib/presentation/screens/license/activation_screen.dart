@@ -16,8 +16,10 @@ class ActivationScreen extends StatefulWidget {
 class _ActivationScreenState extends State<ActivationScreen> {
   final _controllers = List.generate(4, (_) => TextEditingController());
   final _focusNodes = List.generate(4, (_) => FocusNode());
+  final _companyController = TextEditingController();
   bool _loading = false;
   String? _error;
+  String? _success;
 
   @override
   void dispose() {
@@ -27,6 +29,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
     for (final f in _focusNodes) {
       f.dispose();
     }
+    _companyController.dispose();
     super.dispose();
   }
 
@@ -42,25 +45,29 @@ class _ActivationScreenState extends State<ActivationScreen> {
       return;
     }
 
+    final companyName = _companyController.text.trim();
+    if (companyName.isEmpty) {
+      setState(() => _error = 'يرجى إدخال اسم الشركة');
+      return;
+    }
+
     setState(() {
       _loading = true;
       _error = null;
+      _success = null;
     });
 
-    final result = await LicenseService.activate(key);
+    final result = await LicenseService.activate(key, companyName: companyName);
 
     if (!mounted) return;
 
     setState(() => _loading = false);
 
     if (result.valid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result.message),
-          backgroundColor: Colors.green,
-        ),
-      );
-      widget.onActivated();
+      setState(() => _success = result.message);
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) widget.onActivated();
+      });
     } else {
       setState(() => _error = result.message);
     }
@@ -108,7 +115,28 @@ class _ActivationScreenState extends State<ActivationScreen> {
                     color: Colors.grey[600],
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: 350,
+                  child: TextField(
+                    controller: _companyController,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 16),
+                    decoration: InputDecoration(
+                      labelText: 'اسم الشركة',
+                      hintText: 'أدخل اسم شركتك',
+                      prefixIcon: const Icon(Icons.business),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: AppTheme.primary, width: 2),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: List.generate(4, (i) {
@@ -119,8 +147,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
                         focusNode: FocusNode(),
                         onKeyEvent: (event) {
                           if (event is KeyDownEvent &&
-                              event.logicalKey ==
-                                  LogicalKeyboardKey.backspace &&
+                              event.logicalKey == LogicalKeyboardKey.backspace &&
                               _controllers[i].text.isEmpty &&
                               i > 0) {
                             _controllers[i - 1].clear();
@@ -139,21 +166,18 @@ class _ActivationScreenState extends State<ActivationScreen> {
                           maxLength: 4,
                           textCapitalization: TextCapitalization.characters,
                           inputFormatters: [
-                            FilteringTextInputFormatter.allow(
-                                RegExp(r'[A-Za-z0-9]')),
+                            FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
                             LengthLimitingTextInputFormatter(4),
                           ],
                           decoration: InputDecoration(
                             counterText: '',
-                            contentPadding:
-                                const EdgeInsets.symmetric(vertical: 14),
+                            contentPadding: const EdgeInsets.symmetric(vertical: 14),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
-                              borderSide: BorderSide(
-                                  color: AppTheme.primary, width: 2),
+                              borderSide: BorderSide(color: AppTheme.primary, width: 2),
                             ),
                           ),
                           onChanged: (value) {
@@ -175,10 +199,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
                 const SizedBox(height: 8),
                 Text(
                   loc.activationHint,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[400],
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey[400]),
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 16),
@@ -191,14 +212,35 @@ class _ActivationScreenState extends State<ActivationScreen> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.error_outline,
-                            color: Colors.red[700], size: 20),
+                        Icon(Icons.error_outline, color: Colors.red[700], size: 20),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             _error!,
-                            style: TextStyle(
-                                color: Colors.red[700], fontSize: 14),
+                            style: TextStyle(color: Colors.red[700], fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                if (_success != null) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.green[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.green[200]!),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.check_circle_outline, color: Colors.green[700], size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _success!,
+                            style: TextStyle(color: Colors.green[700], fontSize: 14),
                           ),
                         ),
                       ],
@@ -229,10 +271,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
                           )
                         : Text(
                             loc.activate,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                           ),
                   ),
                 ),
@@ -248,11 +287,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
                     children: [
                       Text(
                         loc.subscriptionPlans,
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.primary,
-                        ),
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.primary),
                       ),
                       const SizedBox(height: 12),
                       Row(
@@ -283,10 +318,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
                 const SizedBox(height: 16),
                 Text(
                   loc.contactDistributor,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey[500],
-                  ),
+                  style: TextStyle(fontSize: 13, color: Colors.grey[500]),
                 ),
               ],
             ),
@@ -317,20 +349,14 @@ class _ActivationScreenState extends State<ActivationScreen> {
         children: [
           Icon(icon, color: AppTheme.primary, size: 28),
           const SizedBox(height: 4),
-          Text(title,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
           const SizedBox(height: 4),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(price,
-                  style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.primary)),
-              Text(period,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+              Text(price, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.primary)),
+              Text(period, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
             ],
           ),
           if (badge != null) ...[
@@ -341,8 +367,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
                 color: AppTheme.primary,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Text(badge,
-                  style: const TextStyle(color: Colors.white, fontSize: 11)),
+              child: Text(badge, style: const TextStyle(color: Colors.white, fontSize: 11)),
             ),
           ],
         ],

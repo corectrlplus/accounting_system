@@ -10,8 +10,9 @@ import 'package:accounting_system/l10n/locale_provider.dart';
 
 class AccountingApp extends StatefulWidget {
   final AppDatabase db;
+  final bool subscriptionExpired;
 
-  const AccountingApp({super.key, required this.db});
+  const AccountingApp({super.key, required this.db, this.subscriptionExpired = false});
 
   @override
   State<AccountingApp> createState() => _AccountingAppState();
@@ -49,6 +50,7 @@ class _AccountingAppState extends State<AccountingApp> {
       provider: _localeProvider,
       child: AppDatabaseProvider(
         db: widget.db,
+        subscriptionExpired: widget.subscriptionExpired,
         child: MaterialApp(
           title: 'Accounting System',
           debugShowCheckedModeBanner: false,
