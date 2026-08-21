@@ -36,7 +36,7 @@ class LicenseService {
           'license_key': licenseKey,
           'device_id': deviceId,
         }),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 120));
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
 
@@ -61,7 +61,7 @@ class LicenseService {
     } catch (e) {
       return LicenseResult(
         valid: false,
-        message: 'خطأ في الاتصال بالسيرفر',
+        message: 'خطأ في الاتصال بالسيرفر: $e',
       );
     }
   }
@@ -82,7 +82,7 @@ class LicenseService {
           'license_key': licenseKey,
           'device_id': deviceId,
         }),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 120));
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
 

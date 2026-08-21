@@ -16,12 +16,13 @@ void main(List<String> args) async {
   _initDatabase();
 
   final router = Router()
+    ..get('/', _adminDashboardHandler)
+    ..get('/api/health', _healthHandler)
     ..post('/api/activate', _activateHandler)
     ..post('/api/verify', _verifyHandler)
     ..post('/api/renew', _renewHandler)
     ..post('/api/admin/generate', _generateCodeHandler)
-    ..get('/api/admin/licenses', _listLicensesHandler)
-    ..get('/api/health', _healthHandler);
+    ..get('/api/admin/licenses', _listLicensesHandler);
 
   final handler = const Pipeline()
       .addMiddleware(logRequests())
@@ -30,7 +31,6 @@ void main(List<String> args) async {
 
   final server = await io.serve(handler, InternetAddress.anyIPv4, port);
   print('License server running on http://${server.address.host}:${server.port}');
-  print('Admin token: ADMIN_SECRET_KEY_CHANGE_ME');
 }
 
 void _initDatabase() {
@@ -90,6 +90,11 @@ Response _healthHandler(Request request) {
       headers: {'Content-Type': 'application/json'});
 }
 
+Response _adminDashboardHandler(Request request) {
+  final html = File('${Directory.current.path}/bin/dashboard.html').readAsStringSync();
+  return Response.ok(html, headers: {'Content-Type': 'text/html; charset=utf-8'});
+}
+
 Future<Response> _generateCodeHandler(Request request) async {
   if (!_checkAdminAuth(request)) {
     return Response.forbidden(jsonEncode({'error': 'Unauthorized'}),
@@ -143,7 +148,7 @@ Future<Response> _activateHandler(Request request) async {
   if (results.isEmpty) {
     _logAction(licenseKey, deviceId, 'activate_failed', request);
     return Response.ok(
-      jsonEncode({'error': 'مفتاح التفعيل غير صحيح', 'valid': false}),
+      jsonEncode({'error': 'Invalid license key', 'valid': false}),
       headers: {'Content-Type': 'application/json'},
     );
   }
@@ -157,7 +162,7 @@ Future<Response> _activateHandler(Request request) async {
     _logAction(licenseKey, deviceId, 'activate_rejected_diff_device', request);
     return Response.ok(
       jsonEncode({
-        'error': 'هذا المفتاح مفعّل على جهاز آخر. تواصل مع الدعم للتحويل.',
+        'error': 'This key is activated on another device.',
         'valid': false,
       }),
       headers: {'Content-Type': 'application/json'},
@@ -206,7 +211,7 @@ Future<Response> _verifyHandler(Request request) async {
 
   if (results.isEmpty) {
     return Response.ok(
-      jsonEncode({'valid': false, 'error': 'مفتاح غير موجود'}),
+      jsonEncode({'valid': false, 'error': 'Key not found'}),
       headers: {'Content-Type': 'application/json'},
     );
   }
@@ -215,14 +220,14 @@ Future<Response> _verifyHandler(Request request) async {
 
   if (license['is_active'] != 1) {
     return Response.ok(
-      jsonEncode({'valid': false, 'error': 'المفتاح غير مفعّل'}),
+      jsonEncode({'valid': false, 'error': 'Key not activated'}),
       headers: {'Content-Type': 'application/json'},
     );
   }
 
   if (license['device_id'] != deviceId) {
     return Response.ok(
-      jsonEncode({'valid': false, 'error': 'مفعّل على جهاز آخر'}),
+      jsonEncode({'valid': false, 'error': 'Activated on another device'}),
       headers: {'Content-Type': 'application/json'},
     );
   }
@@ -235,7 +240,7 @@ Future<Response> _verifyHandler(Request request) async {
     return Response.ok(
       jsonEncode({
         'valid': false,
-        'error': 'انتهت صلاحية الاشتراك',
+        'error': 'Subscription expired',
         'expired_days': daysExpired,
         'plan': license['plan'],
       }),
@@ -274,7 +279,7 @@ Future<Response> _renewHandler(Request request) async {
 
   if (results.isEmpty) {
     return Response.ok(
-      jsonEncode({'error': 'مفتاح غير موجود'}),
+      jsonEncode({'error': 'Key not found'}),
       headers: {'Content-Type': 'application/json'},
     );
   }
@@ -322,7 +327,7 @@ Future<Response> _listLicensesHandler(Request request) async {
       'id': row['id'],
       'license_key': row['license_key'],
       'plan': row['plan'],
-      'device_id': row['device_id'] ?? 'غير مفعّل',
+      'device_id': row['device_id'] ?? 'Not activated',
       'is_active': row['is_active'] == 1 && !isExpired,
       'is_expired': isExpired,
       'created_at': row['created_at'],

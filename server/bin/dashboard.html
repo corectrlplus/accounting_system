@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>License Admin Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f0f2f5; color: #333; }
+  .login-overlay { position: fixed; inset: 0; background: linear-gradient(135deg, #1a237e, #0d47a1); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+  .login-box { background: white; padding: 40px; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); width: 400px; max-width: 90vw; text-align: center; }
+  .login-box h2 { color: #1a237e; margin-bottom: 24px; font-size: 24px; }
+  .login-box input { width: 100%; padding: 14px 16px; border: 2px solid #e0e0e0; border-radius: 10px; font-size: 16px; margin-bottom: 16px; direction: ltr; text-align: center; letter-spacing: 2px; }
+  .login-box input:focus { outline: none; border-color: #1a237e; }
+  .login-box button { width: 100%; padding: 14px; background: #1a237e; color: white; border: none; border-radius: 10px; font-size: 18px; font-weight: bold; cursor: pointer; }
+  .login-box button:hover { background: #0d47a1; }
+  .login-error { color: #d32f2f; margin-top: 12px; display: none; }
+  .hidden { display: none !important; }
+  header { background: linear-gradient(135deg, #1a237e, #0d47a1); color: white; padding: 20px 32px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+  header h1 { font-size: 22px; }
+  header button { background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.4); padding: 8px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  header button:hover { background: rgba(255,255,255,0.3); }
+  .container { max-width: 1100px; margin: 24px auto; padding: 0 20px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .stat-card { background: white; padding: 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); text-align: center; }
+  .stat-card .number { font-size: 36px; font-weight: bold; color: #1a237e; }
+  .stat-card .label { color: #666; margin-top: 8px; font-size: 14px; }
+  .panel { background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); padding: 24px; margin-bottom: 24px; }
+  .panel h3 { color: #1a237e; margin-bottom: 16px; font-size: 18px; }
+  .generate-form { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+  .generate-form .field { flex: 1; min-width: 150px; }
+  .generate-form label { display: block; font-size: 13px; color: #666; margin-bottom: 6px; font-weight: 600; }
+  .generate-form select, .generate-form input { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 15px; }
+  .generate-form select:focus, .generate-form input:focus { outline: none; border-color: #1a237e; }
+  .btn-primary { background: #1a237e; color: white; border: none; padding: 12px 28px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; white-space: nowrap; }
+  .btn-primary:hover { background: #0d47a1; }
+  .btn-primary:disabled { background: #9e9e9e; cursor: not-allowed; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 700px; }
+  th { background: #f5f5f5; padding: 14px 12px; text-align: right; font-size: 13px; color: #666; font-weight: 600; border-bottom: 2px solid #e0e0e0; }
+  td { padding: 14px 12px; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+  tr:hover { background: #fafafa; }
+  .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .badge-active { background: #e8f5e9; color: #2e7d32; }
+  .badge-inactive { background: #fff3e0; color: #e65100; }
+  .badge-expired { background: #fce4ec; color: #c62828; }
+  .badge-monthly { background: #e3f2fd; color: #1565c0; }
+  .badge-yearly { background: #ede7f6; color: #4527a0; }
+  .key-text { font-family: monospace; font-size: 15px; font-weight: bold; color: #1a237e; letter-spacing: 1px; }
+  .generated-keys { margin-top: 16px; }
+  .generated-key-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #f5f5f5; border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap; gap: 8px; }
+  .copy-btn { background: #1a237e; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .copy-btn:hover { background: #0d47a1; }
+  .alert { padding: 14px 20px; border-radius: 8px; margin-bottom: 16px; font-weight: 500; }
+  .alert-success { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
+  .alert-error { background: #fce4ec; color: #c62828; border: 1px solid #f8bbd0; }
+  .empty-state { text-align: center; padding: 48px; color: #999; }
+</style>
+</head>
+<body>
+
+<div id="loginOverlay" class="login-overlay">
+  <div class="login-box">
+    <h2>License Admin Dashboard</h2>
+    <input type="password" id="tokenInput" placeholder="Admin Token" onkeypress="if(event.key==='Enter')doLogin()">
+    <button onclick="doLogin()">Login</button>
+    <div id="loginError" class="login-error">Invalid admin token</div>
+  </div>
+</div>
+
+<div id="mainApp" class="hidden">
+  <header>
+    <h1>License Admin Dashboard</h1>
+    <button onclick="doLogout()">Logout</button>
+  </header>
+  <div class="container">
+    <div id="alertArea"></div>
+
+    <div class="stats">
+      <div class="stat-card"><div class="number" id="statTotal">0</div><div class="label">Total Keys</div></div>
+      <div class="stat-card"><div class="number" id="statActive" style="color:#2e7d32">0</div><div class="label">Active</div></div>
+      <div class="stat-card"><div class="number" id="statInactive" style="color:#e65100">0</div><div class="label">Inactive</div></div>
+      <div class="stat-card"><div class="number" id="statExpired" style="color:#c62828">0</div><div class="label">Expired</div></div>
+    </div>
+
+    <div class="panel">
+      <h3>Generate New Keys</h3>
+      <div class="generate-form">
+        <div class="field">
+          <label>Count</label>
+          <input type="number" id="genCount" value="1" min="1" max="100">
+        </div>
+        <div class="field">
+          <label>Plan</label>
+          <select id="genPlan">
+            <option value="monthly">Monthly - $45</option>
+            <option value="yearly">Yearly - $480</option>
+          </select>
+        </div>
+        <button class="btn-primary" id="genBtn" onclick="generateKeys()">Generate Keys</button>
+      </div>
+      <div id="generatedKeysArea" class="generated-keys"></div>
+    </div>
+
+    <div class="panel">
+      <h3>All Licenses</h3>
+      <div class="table-wrap" id="licensesTable"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let TOKEN = '';
+const API = '';
+
+function showAlert(msg, type) {
+  document.getElementById('alertArea').innerHTML = '<div class="alert alert-' + type + '">' + msg + '</div>';
+  setTimeout(() => { document.getElementById('alertArea').innerHTML = ''; }, 4000);
+}
+
+function doLogin() {
+  TOKEN = document.getElementById('tokenInput').value.trim();
+  if (!TOKEN) return;
+  fetch(API + '/api/admin/licenses', {headers: {'Authorization': 'Bearer ' + TOKEN}})
+    .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+    .then(data => {
+      document.getElementById('loginOverlay').classList.add('hidden');
+      document.getElementById('mainApp').classList.remove('hidden');
+      renderLicenses(data);
+    })
+    .catch(() => {
+      document.getElementById('loginError').style.display = 'block';
+    });
+}
+
+function doLogout() {
+  TOKEN = '';
+  document.getElementById('mainApp').classList.add('hidden');
+  document.getElementById('loginOverlay').classList.remove('hidden');
+  document.getElementById('tokenInput').value = '';
+  document.getElementById('loginError').style.display = 'none';
+}
+
+function generateKeys() {
+  const btn = document.getElementById('genBtn');
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  const count = parseInt(document.getElementById('genCount').value) || 1;
+  const plan = document.getElementById('genPlan').value;
+  fetch(API + '/api/admin/generate', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN},
+    body: JSON.stringify({count: count, plan: plan})
+  })
+  .then(r => r.json())
+  .then(data => {
+    let html = '<div class="alert alert-success">Generated ' + data.codes.length + ' key(s) successfully</div>';
+    data.codes.forEach(c => {
+      html += '<div class="generated-key-item"><span class="key-text">' + c.license_key + '</span>';
+      html += '<span class="badge badge-' + c.plan + '">' + (c.plan === 'monthly' ? 'Monthly' : 'Yearly') + '</span>';
+      html += '<button class="copy-btn" onclick="copyKey(this, \'' + c.license_key + '\')">Copy</button>';
+      html += '</div>';
+    });
+    document.getElementById('generatedKeysArea').innerHTML = html;
+    btn.disabled = false;
+    btn.textContent = 'Generate Keys';
+    loadLicenses();
+  })
+  .catch(err => {
+    showAlert('Error: ' + err.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Generate Keys';
+  });
+}
+
+function copyKey(btn, key) {
+  navigator.clipboard.writeText(key).then(() => {
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+  });
+}
+
+function loadLicenses() {
+  fetch(API + '/api/admin/licenses', {headers: {'Authorization': 'Bearer ' + TOKEN}})
+    .then(r => r.json())
+    .then(data => renderLicenses(data));
+}
+
+function renderLicenses(data) {
+  const licenses = data.licenses || [];
+  let total = licenses.length;
+  let active = 0, inactive = 0, expired = 0;
+  licenses.forEach(l => {
+    if (l.is_expired) expired++;
+    else if (l.is_active) active++;
+    else inactive++;
+  });
+  document.getElementById('statTotal').textContent = total;
+  document.getElementById('statActive').textContent = active;
+  document.getElementById('statInactive').textContent = inactive;
+  document.getElementById('statExpired').textContent = expired;
+
+  if (licenses.length === 0) {
+    document.getElementById('licensesTable').innerHTML = '<div class="empty-state">No licenses yet. Generate some keys above.</div>';
+    return;
+  }
+
+  let html = '<table><thead><tr><th>Key</th><th>Plan</th><th>Status</th><th>Device</th><th>Created</th><th>Expires</th></tr></thead><tbody>';
+  licenses.forEach(l => {
+    let status = 'inactive';
+    let statusText = 'Inactive';
+    if (l.is_expired) { status = 'expired'; statusText = 'Expired'; }
+    else if (l.is_active) { status = 'active'; statusText = 'Active'; }
+
+    const created = l.created_at ? new Date(l.created_at).toLocaleDateString() : '-';
+    const expires = l.expires_at ? new Date(l.expires_at).toLocaleDateString() : '-';
+    const device = l.device_id && l.device_id !== 'Not activated' ? l.device_id.substring(0, 16) + '...' : 'Not activated';
+
+    html += '<tr>';
+    html += '<td><span class="key-text">' + l.license_key + '</span></td>';
+    html += '<td><span class="badge badge-' + l.plan + '">' + l.plan + '</span></td>';
+    html += '<td><span class="badge badge-' + status + '">' + statusText + '</span></td>';
+    html += '<td style="font-size:12px;color:#666">' + device + '</td>';
+    html += '<td>' + created + '</td>';
+    html += '<td>' + expires + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('licensesTable').innerHTML = html;
+}
+</script>
+</body>
+</html>
