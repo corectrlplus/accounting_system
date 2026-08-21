@@ -19,15 +19,51 @@ void main(List<String> args) async {
   }
 
   final uri = Uri.parse(dbUrl);
+  final host = uri.host;
+  final dbPort = uri.port > 0 ? uri.port : 5432;
+  final dbName = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : 'license_server';
+
+  // Parse credentials: Render URLs may have encoded passwords with special chars
+  var username = '';
+  var password = '';
+  final userInfo = uri.userInfo;
+  if (userInfo.isNotEmpty) {
+    final colonIdx = userInfo.indexOf(':');
+    if (colonIdx > 0) {
+      username = Uri.decodeComponent(userInfo.substring(0, colonIdx));
+      password = Uri.decodeComponent(userInfo.substring(colonIdx + 1));
+    } else {
+      username = Uri.decodeComponent(userInfo);
+    }
+  }
+
+  print('Connecting to PostgreSQL: host=$host port=$dbPort db=$dbName user=$username');
+
   db = PostgreSQLConnection(
-    uri.host,
-    uri.port,
-    uri.pathSegments.first,
-    username: uri.userInfo.split(':').first,
-    password: uri.userInfo.split(':').length > 1 ? uri.userInfo.split(':').last : '',
+    host,
+    dbPort,
+    dbName,
+    username: username,
+    password: password,
     useSSL: true,
   );
-  await db.open();
+
+  // Retry connection up to 5 times (Render DB may be starting)
+  for (int attempt = 1; attempt <= 5; attempt++) {
+    try {
+      await db.open();
+      print('Database connected successfully on attempt $attempt');
+      break;
+    } catch (e) {
+      print('Connection attempt $attempt failed: $e');
+      if (attempt == 5) {
+        print('ERROR: Could not connect to database after 5 attempts');
+        exit(1);
+      }
+      await Future.delayed(Duration(seconds: 3 * attempt));
+    }
+  }
+
   await _initDatabase();
 
   final router = Router()
