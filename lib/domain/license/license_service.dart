@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:crypto/crypto.dart';
 
 class LicenseService {
-  static const String _serverUrl = 'http://127.0.0.1:8080';
+  static const String _serverUrl = 'https://accounting-system-5iuv.onrender.com';
   static const String _prefsKeyLicense = 'license_key';
   static const String _prefsKeyDeviceId = 'device_id';
   static const String _prefsKeyPlan = 'license_plan';
