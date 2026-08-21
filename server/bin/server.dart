@@ -25,7 +25,8 @@ void main(List<String> args) async {
     uri.pathSegments.first,
     username: uri.userInfo.split(':').first,
     password: uri.userInfo.split(':').length > 1 ? uri.userInfo.split(':').last : '',
-    securityContext: SecurityContext.defaultContext,
+    allowClearTextPassword: true,
+    timeoutInSeconds: 30,
   );
   await db.open();
   await _initDatabase();
