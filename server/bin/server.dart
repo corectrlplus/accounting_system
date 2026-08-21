@@ -4,16 +4,31 @@ import 'dart:math';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_router/shelf_router.dart';
-import 'package:sqlite3/sqlite3.dart';
+import 'package:postgres/postgres.dart';
 
-late Database db;
+late PostgreSQLConnection db;
 final _rng = Random.secure();
 
 void main(List<String> args) async {
   final port = int.tryParse(Platform.environment['PORT'] ?? '8080') ?? 8080;
+  final dbUrl = Platform.environment['DATABASE_URL'] ?? '';
 
-  db = sqlite3.open('licenses.db');
-  _initDatabase();
+  if (dbUrl.isEmpty) {
+    print('ERROR: DATABASE_URL not set');
+    exit(1);
+  }
+
+  final uri = Uri.parse(dbUrl);
+  db = PostgreSQLConnection(
+    uri.host,
+    uri.port,
+    uri.pathSegments.first,
+    username: uri.userInfo.split(':').first,
+    password: uri.userInfo.split(':').length > 1 ? uri.userInfo.split(':').last : '',
+    useSslMode: true,
+  );
+  await db.open();
+  await _initDatabase();
 
   final router = Router()
     ..get('/', _adminDashboardHandler)
@@ -33,36 +48,32 @@ void main(List<String> args) async {
   print('License server running on http://${server.address.host}:${server.port}');
 }
 
-void _initDatabase() {
-  db.execute('''
+Future<void> _initDatabase() async {
+  await db.execute('''
     CREATE TABLE IF NOT EXISTS licenses (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       license_key TEXT UNIQUE NOT NULL,
       plan TEXT NOT NULL DEFAULT 'monthly',
       company_name TEXT DEFAULT '',
       device_id TEXT,
-      activated_at INTEGER,
-      expires_at INTEGER,
+      activated_at BIGINT,
+      expires_at BIGINT,
       is_active INTEGER DEFAULT 0,
-      created_at INTEGER NOT NULL,
+      created_at BIGINT NOT NULL,
       created_by TEXT DEFAULT 'admin'
     )
   ''');
 
-  db.execute('''
+  await db.execute('''
     CREATE TABLE IF NOT EXISTS activation_log (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       license_key TEXT NOT NULL,
       device_id TEXT NOT NULL,
       action TEXT NOT NULL,
-      timestamp INTEGER NOT NULL,
+      timestamp BIGINT NOT NULL,
       ip_address TEXT
     )
   ''');
-
-  try {
-    db.execute("ALTER TABLE licenses ADD COLUMN company_name TEXT DEFAULT ''");
-  } catch (_) {}
 
   print('Database initialized');
 }
@@ -91,7 +102,7 @@ bool _checkAdminAuth(Request request) {
 }
 
 Response _healthHandler(Request request) {
-  return Response.ok(jsonEncode({'status': 'ok', 'version': '1.0.0'}),
+  return Response.ok(jsonEncode({'status': 'ok', 'version': '2.0.0'}),
       headers: {'Content-Type': 'application/json'});
 }
 
@@ -117,9 +128,9 @@ Future<Response> _generateCodeHandler(Request request) async {
 
   for (int i = 0; i < count; i++) {
     final key = _generateLicenseKey();
-    db.execute(
-      'INSERT INTO licenses (license_key, plan, company_name, created_at) VALUES (?, ?, ?, ?)',
-      [key, plan, companyName, now],
+    await db.execute(
+      'INSERT INTO licenses (license_key, plan, company_name, created_at) VALUES (@key, @plan, @company, @now)',
+      substitutionValues: {'key': key, 'plan': plan, 'company': companyName, 'now': now},
     );
     codes.add({
       'license_key': key,
@@ -149,9 +160,9 @@ Future<Response> _activateHandler(Request request) async {
 
   final now = DateTime.now().millisecondsSinceEpoch;
 
-  final results = db.select(
-    'SELECT * FROM licenses WHERE license_key = ?',
-    [licenseKey],
+  final results = await db.mappedResultsQuery(
+    'SELECT * FROM licenses WHERE license_key = @key',
+    substitutionValues: {'key': licenseKey},
   );
 
   if (results.isEmpty) {
@@ -162,7 +173,7 @@ Future<Response> _activateHandler(Request request) async {
     );
   }
 
-  final license = results.first;
+  final license = results.first['licenses']!;
 
   if (license['device_id'] != null &&
       (license['device_id'] as String).isNotEmpty &&
@@ -183,9 +194,9 @@ Future<Response> _activateHandler(Request request) async {
 
   final storedCompanyName = companyName.isNotEmpty ? companyName : (license['company_name'] as String? ?? '');
 
-  db.execute(
-    'UPDATE licenses SET device_id = ?, activated_at = ?, expires_at = ?, company_name = ?, is_active = 1 WHERE license_key = ?',
-    [deviceId, now, expiresAt, storedCompanyName, licenseKey],
+  await db.execute(
+    'UPDATE licenses SET device_id = @did, activated_at = @at, expires_at = @exp, company_name = @company, is_active = 1 WHERE license_key = @key',
+    substitutionValues: {'did': deviceId, 'at': now, 'exp': expiresAt, 'company': storedCompanyName, 'key': licenseKey},
   );
 
   _logAction(licenseKey, deviceId, 'activated', request);
@@ -216,9 +227,9 @@ Future<Response> _verifyHandler(Request request) async {
     );
   }
 
-  final results = db.select(
-    'SELECT * FROM licenses WHERE license_key = ?',
-    [licenseKey],
+  final results = await db.mappedResultsQuery(
+    'SELECT * FROM licenses WHERE license_key = @key',
+    substitutionValues: {'key': licenseKey},
   );
 
   if (results.isEmpty) {
@@ -228,7 +239,7 @@ Future<Response> _verifyHandler(Request request) async {
     );
   }
 
-  final license = results.first;
+  final license = results.first['licenses']!;
 
   if (license['is_active'] != 1) {
     return Response.ok(
@@ -267,6 +278,7 @@ Future<Response> _verifyHandler(Request request) async {
       'valid': true,
       'license_key': licenseKey,
       'plan': license['plan'],
+      'company_name': license['company_name'] ?? '',
       'expires_at': DateTime.fromMillisecondsSinceEpoch(expiresAt).toIso8601String(),
       'days_remaining': daysRemaining,
     }),
@@ -284,9 +296,9 @@ Future<Response> _renewHandler(Request request) async {
   final licenseKey = (body['license_key'] as String? ?? '').toUpperCase().trim();
   final plan = body['plan'] as String? ?? 'monthly';
 
-  final results = db.select(
-    'SELECT * FROM licenses WHERE license_key = ?',
-    [licenseKey],
+  final results = await db.mappedResultsQuery(
+    'SELECT * FROM licenses WHERE license_key = @key',
+    substitutionValues: {'key': licenseKey},
   );
 
   if (results.isEmpty) {
@@ -296,7 +308,7 @@ Future<Response> _renewHandler(Request request) async {
     );
   }
 
-  final license = results.first;
+  final license = results.first['licenses']!;
   final durationDays = plan == 'yearly' ? 365 : 30;
 
   final now = DateTime.now().millisecondsSinceEpoch;
@@ -304,9 +316,9 @@ Future<Response> _renewHandler(Request request) async {
   final baseTime = currentExpiry > now ? currentExpiry : now;
   final newExpiry = baseTime + (durationDays * 24 * 60 * 60 * 1000);
 
-  db.execute(
-    'UPDATE licenses SET plan = ?, expires_at = ?, is_active = 1 WHERE license_key = ?',
-    [plan, newExpiry, licenseKey],
+  await db.execute(
+    'UPDATE licenses SET plan = @plan, expires_at = @exp, is_active = 1 WHERE license_key = @key',
+    substitutionValues: {'plan': plan, 'exp': newExpiry, 'key': licenseKey},
   );
 
   return Response.ok(
@@ -327,25 +339,26 @@ Future<Response> _listLicensesHandler(Request request) async {
         headers: {'Content-Type': 'application/json'});
   }
 
-  final results = db.select(
+  final results = await db.mappedResultsQuery(
     'SELECT id, license_key, plan, company_name, device_id, activated_at, expires_at, is_active, created_at FROM licenses ORDER BY created_at DESC',
   );
 
   final now = DateTime.now().millisecondsSinceEpoch;
   final licenses = results.map((row) {
-    final expiresAt = row['expires_at'] as int?;
+    final l = row['licenses']!;
+    final expiresAt = l['expires_at'] as int?;
     final isExpired = expiresAt != null && now > expiresAt;
     return {
-      'id': row['id'],
-      'license_key': row['license_key'],
-      'plan': row['plan'],
-      'company_name': row['company_name'] ?? '',
-      'device_id': row['device_id'] ?? 'Not activated',
-      'is_active': row['is_active'] == 1 && !isExpired,
+      'id': l['id'],
+      'license_key': l['license_key'],
+      'plan': l['plan'],
+      'company_name': l['company_name'] ?? '',
+      'device_id': l['device_id'] ?? 'Not activated',
+      'is_active': l['is_active'] == 1 && !isExpired,
       'is_expired': isExpired,
-      'created_at': row['created_at'],
-      'activated_at': row['activated_at'],
-      'expires_at': row['expires_at'],
+      'created_at': l['created_at'],
+      'activated_at': l['activated_at'],
+      'expires_at': l['expires_at'],
     };
   }).toList();
 
@@ -371,11 +384,11 @@ String _randomChar() {
   return chars[_rng.nextInt(chars.length)];
 }
 
-void _logAction(String key, String deviceId, String action, Request request) {
+void _logAction(String key, String deviceId, String action, Request request) async {
   final now = DateTime.now().millisecondsSinceEpoch;
   final ip = request.headers['X-Forwarded-For'] ?? 'unknown';
-  db.execute(
-    'INSERT INTO activation_log (license_key, device_id, action, timestamp, ip_address) VALUES (?, ?, ?, ?, ?)',
-    [key, deviceId, action, now, ip],
+  await db.execute(
+    'INSERT INTO activation_log (license_key, device_id, action, timestamp, ip_address) VALUES (@key, @did, @action, @ts, @ip)',
+    substitutionValues: {'key': key, 'did': deviceId, 'action': action, 'ts': now, 'ip': ip},
   );
 }
